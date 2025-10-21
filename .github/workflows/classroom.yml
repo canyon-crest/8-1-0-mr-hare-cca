@@ -7,6 +7,7 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout student repository
         uses: actions/checkout@v4
@@ -20,11 +21,15 @@ jobs:
         run: |
           npm install --save-dev jest@29 jsdom@21 jest-environment-jsdom@29
 
-      - name: Create Jest config (use jsdom env)
+      - name: Create Jest config (use jsdom env and match .cjs tests)
         run: |
           cat > jest.config.cjs <<'EOF'
           module.exports = {
             testEnvironment: 'jsdom',
+            testMatch: [
+              '**/__tests__/**/*.test.cjs',
+              '**/?(*.)+(spec|test).[jt]s?(x)'
+            ]
           };
           EOF
 
@@ -36,11 +41,10 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
-          // Helper to load and run script.js inside the window context
+          // Load and run the student's script in the DOM window
           function runStudentScript(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
             const code = fs.readFileSync(scriptPath, 'utf8');
-            // Run the student's script in the JSDOM window context
             window.eval(code);
           }
 
@@ -62,8 +66,6 @@ jobs:
               dom = new JSDOM(html, { url: 'http://localhost/' });
               window = dom.window;
               document = window.document;
-
-              // Load student's script into the window
               runStudentScript(window);
             });
 
@@ -74,10 +76,7 @@ jobs:
 
             test('displays correct Celsius for 212°F', () => {
               document.getElementById('temp').value = '212';
-              // call calculate if present
-              if (typeof window.calculate === 'function') {
-                window.calculate();
-              }
+              if (typeof window.calculate === 'function') window.calculate();
               const out = document.getElementById('tempC').textContent.trim();
               const c = parseFloat(out);
               expect(Math.abs(c - 100)).toBeLessThan(0.5);
@@ -85,9 +84,7 @@ jobs:
 
             test('displays correct area for radius=5', () => {
               document.getElementById('radius').value = '5';
-              if (typeof window.calculate === 'function') {
-                window.calculate();
-              }
+              if (typeof window.calculate === 'function') window.calculate();
               const out = document.getElementById('area').textContent.trim();
               const a = parseFloat(out);
               const expected = Math.PI * 25;

@@ -2,7 +2,6 @@
 # GitHub Classroom Autograding Configuration
 
 name: "Temperature and Circle Area Assignment"
-
 on: [push]
 
 jobs:
@@ -17,18 +16,35 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install test dependencies (pin jsdom to CJS version)
         run: |
-          npm install jsdom jest --save-dev
+          npm install --save-dev jest@29 jsdom@21 jest-environment-jsdom@29
+
+      - name: Create Jest config (use jsdom env)
+        run: |
+          cat > jest.config.cjs <<'EOF'
+          module.exports = {
+            testEnvironment: 'jsdom',
+          };
+          EOF
 
       - name: Create test file
         run: |
           mkdir -p __tests__
-          cat > __tests__/script.test.js <<'EOF'
-          const fs = require("fs");
-          const { JSDOM } = require("jsdom");
+          cat > __tests__/script.test.cjs <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const { JSDOM } = require('jsdom');
 
-          describe("Temperature and Circle Area Conversion (DOM Output)", () => {
+          // Helper to load and run script.js inside the window context
+          function runStudentScript(window) {
+            const scriptPath = path.join(process.cwd(), 'script.js');
+            const code = fs.readFileSync(scriptPath, 'utf8');
+            // Run the student's script in the JSDOM window context
+            window.eval(code);
+          }
+
+          describe('Temperature and Circle Area Conversion (DOM Output)', () => {
             let dom, document, window;
 
             beforeEach(() => {
@@ -40,47 +56,42 @@ jobs:
                     <input id="radius" value="5">
                     <div id="tempC"></div>
                     <div id="area"></div>
-                    <script src="../script.js"></script>
+                    <button id="calcBtn">Calculate</button>
                   </body>
                 </html>`;
-              dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable" });
-              document = dom.window.document;
+              dom = new JSDOM(html, { url: 'http://localhost/' });
               window = dom.window;
+              document = window.document;
+
+              // Load student's script into the window
+              runStudentScript(window);
             });
 
-            test("should have output elements with ids tempC and area", () => {
-              expect(document.getElementById("tempC")).not.toBeNull();
-              expect(document.getElementById("area")).not.toBeNull();
+            test('has required output elements tempC and area', () => {
+              expect(document.getElementById('tempC')).not.toBeNull();
+              expect(document.getElementById('area')).not.toBeNull();
             });
 
-            test("should correctly convert Fahrenheit to Celsius and display it", () => {
-              const scriptContent = fs.readFileSync("script.js", "utf-8");
-              eval(scriptContent);
-
-              const tempInput = document.getElementById("temp");
-              tempInput.value = "212"; // 212°F → 100°C
-
-              // Call calculate if defined
-              if (typeof window.calculate === "function") window.calculate();
-
-              const outputText = document.getElementById("tempC").textContent.trim();
-              const celsius = parseFloat(outputText);
-              expect(Math.abs(celsius - 100)).toBeLessThan(0.5);
+            test('displays correct Celsius for 212°F', () => {
+              document.getElementById('temp').value = '212';
+              // call calculate if present
+              if (typeof window.calculate === 'function') {
+                window.calculate();
+              }
+              const out = document.getElementById('tempC').textContent.trim();
+              const c = parseFloat(out);
+              expect(Math.abs(c - 100)).toBeLessThan(0.5);
             });
 
-            test("should correctly calculate circle area and display it", () => {
-              const scriptContent = fs.readFileSync("script.js", "utf-8");
-              eval(scriptContent);
-
-              const radiusInput = document.getElementById("radius");
-              radiusInput.value = "5"; // Expected area ≈ 78.54
-
-              if (typeof window.calculate === "function") window.calculate();
-
-              const outputText = document.getElementById("area").textContent.trim();
-              const areaValue = parseFloat(outputText);
-              const expectedArea = Math.PI * Math.pow(5, 2);
-              expect(Math.abs(areaValue - expectedArea)).toBeLessThan(0.5);
+            test('displays correct area for radius=5', () => {
+              document.getElementById('radius').value = '5';
+              if (typeof window.calculate === 'function') {
+                window.calculate();
+              }
+              const out = document.getElementById('area').textContent.trim();
+              const a = parseFloat(out);
+              const expected = Math.PI * 25;
+              expect(Math.abs(a - expected)).toBeLessThan(0.5);
             });
           });
           EOF

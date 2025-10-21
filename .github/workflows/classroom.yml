@@ -50,7 +50,7 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
-          // Extract numeric value safely and cast to Number()
+          // Extract numeric value safely and cast with Number()
           function readNumberFromElement(document, id) {
             const el = document.getElementById(id);
             if (!el) return NaN;
@@ -60,7 +60,7 @@ jobs:
             return match ? Number(match[0]) : NaN;
           }
 
-          // Run student script and try to invoke calculate()
+          // Load student script and try to invoke calculate() even if not on window
           function runStudentScriptAndTryCall(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
             if (fs.existsSync(scriptPath)) {
@@ -70,11 +70,20 @@ jobs:
             }
           }
 
+          // Fire events and common triggers
           function triggerStudentCalculation(window, document) {
+            // Lifecycle
             document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
             window.dispatchEvent(new window.Event('load'));
+
+            // If function exposed on window, call it
             if (typeof window.calculate === 'function') window.calculate();
-            (document.getElementById('calcBtn') || document.querySelector('button'))?.click();
+
+            // Button click (supports addEventListener / inline onclick)
+            const btn = document.getElementById('calcBtn') || document.querySelector('button');
+            if (btn) btn.click();
+
+            // Input/change events
             for (const id of ['temp', 'radius']) {
               const el = document.getElementById(id);
               if (el) {
@@ -88,6 +97,7 @@ jobs:
             let dom, document, window;
 
             beforeEach(() => {
+              // Pre-fill inputs BEFORE loading the student's script
               const html = `
                 <!DOCTYPE html>
                 <html>
@@ -103,7 +113,16 @@ jobs:
               window = dom.window;
               document = window.document;
 
+              // Seed outputs so we can detect "never updated"
+              const tempC = document.getElementById('tempC');
+              const area = document.getElementById('area');
+              if (tempC) tempC.textContent = '__placeholder__';
+              if (area) area.textContent = '__placeholder__';
+
+              // Load and try to invoke
               runStudentScriptAndTryCall(window);
+
+              // Also fire common triggers
               triggerStudentCalculation(window, document);
             });
 
@@ -113,6 +132,11 @@ jobs:
             });
 
             test('displays correct Celsius for 212°F', () => {
+              const el = document.getElementById('tempC');
+              const raw = ((el.textContent || '').trim()) || (typeof el.value==='string' ? el.value.trim() : '');
+              expect(raw).not.toBe(''); // not blank
+              expect(raw).not.toBe('__placeholder__'); // actually updated
+
               let c = readNumberFromElement(document, 'tempC');
               c = Number(c);
               expect(Number.isNaN(c)).toBe(false);
@@ -120,6 +144,11 @@ jobs:
             });
 
             test('displays correct area for radius=5', () => {
+              const el = document.getElementById('area');
+              const raw = ((el.textContent || '').trim()) || (typeof el.value==='string' ? el.value.trim() : '');
+              expect(raw).not.toBe(''); // not blank
+              expect(raw).not.toBe('__placeholder__'); // actually updated
+
               let a = readNumberFromElement(document, 'area');
               a = Number(a);
               const expected = Math.PI * 25;
@@ -153,32 +182,26 @@ jobs:
           const map = new Map();
           for (const t of (r.testResults||[]).flatMap(x => x.assertionResults||[])) map.set(t.fullName, t.status);
 
-          function mark(ok, label) {
-            return `${ok ? '✅' : '❌'} ${label}`;
-          }
+          function mk(ok, label) { return `${ok ? '✅' : '❌'} ${label}`; }
 
           const checks = [
-            ["has required output elements tempC and area", "Elements #tempC and #area exist."],
-            ["displays correct Celsius for 212°F", "Celsius value should appear on screen and be ≈100 for 212°F."],
-            ["displays correct area for radius=5", "Area should appear on screen and be ≈78.54 for radius 5."]
+            ["has required output elements tempC and area", "Add <div id=\"tempC\"></div> and <div id=\"area\"></div> to your HTML."],
+            ["displays correct Celsius for 212°F", "Write ~100.00 into #tempC for 212°F; ensure your code runs on load, on button click, or via calculate()."],
+            ["displays correct area for radius=5", "Write ~78.54 into #area for radius 5; ensure your code runs on load, on button click, or via calculate()."]
           ];
 
-          let lines = [];
-          lines.push(`# Unit 8 Autograder Summary`);
-          lines.push(`**Passed:** ${passed}/${total}  ·  **Failed:** ${failed}\n`);
-          lines.push(`## What you got right / need to fix\n`);
+          let out = [];
+          out.push(`# Unit 8 Autograder Summary`);
+          out.push(`**Passed:** ${passed}/${total}  ·  **Failed:** ${failed}\n`);
+          out.push(`## What you got right / need to fix\n`);
           for (const [name, hint] of checks) {
             const ok = map.get(name) === 'passed';
-            lines.push(mark(ok, name));
-            if (!ok) lines.push(`   - Fix: ${hint}`);
+            out.push(mk(ok, name));
+            if (!ok) out.push(`   - Fix: ${hint}`);
           }
-          lines.push(`\n### Common Fixes`);
-          lines.push(`- Your HTML must include inputs with ids \`temp\`, \`radius\`, and outputs with ids \`tempC\`, \`area\`.`);
-          lines.push(`- Display results **on the page**, not only in \`console.log\`.`);
-          lines.push(`- Use the example function below as a reference:\n`);
-          lines.push("```js\nfunction calculate() {\n  let tempF = Number(document.getElementById('temp').value);\n  let radius = Number(document.getElementById('radius').value);\n  let celsius = (tempF - 32) * 5 / 9;\n  let area = Math.PI * Math.pow(radius, 2);\n  document.getElementById('tempC').textContent = celsius.toFixed(2);\n  document.getElementById('area').textContent = area.toFixed(2);\n}\n```");
-
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'));
+          out.push(`\n### Example Implementation\n`);
+          out.push("```js\nfunction calculate() {\n  let tempF = Number(document.getElementById('temp').value);\n  let radius = Number(document.getElementById('radius').value);\n  let celsius = (tempF - 32) * 5 / 9;\n  let area = Math.PI * Math.pow(radius, 2);\n  document.getElementById('tempC').textContent = celsius.toFixed(2);\n  document.getElementById('area').textContent = area.toFixed(2);\n}\n```");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out.join('\n'));
           NODE
 
       - name: Fail if any test failed

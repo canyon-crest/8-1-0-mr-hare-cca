@@ -21,11 +21,24 @@ jobs:
         run: |
           npm install --save-dev jest@29 jsdom@21 jest-environment-jsdom@29
 
-      - name: Create Jest config (use jsdom env and match .cjs tests)
+      - name: Create Jest setup (polyfills for TextEncoder/TextDecoder)
+        run: |
+          cat > jest.setup.cjs <<'EOF'
+          const { TextEncoder, TextDecoder } = require('util');
+          if (typeof global.TextEncoder === 'undefined') {
+            global.TextEncoder = TextEncoder;
+          }
+          if (typeof global.TextDecoder === 'undefined') {
+            global.TextDecoder = TextDecoder;
+          }
+          EOF
+
+      - name: Create Jest config (use jsdom env, setup file, and match .cjs tests)
         run: |
           cat > jest.config.cjs <<'EOF'
           module.exports = {
             testEnvironment: 'jsdom',
+            setupFiles: ['<rootDir>/jest.setup.cjs'],
             testMatch: [
               '**/__tests__/**/*.test.cjs',
               '**/?(*.)+(spec|test).[jt]s?(x)'

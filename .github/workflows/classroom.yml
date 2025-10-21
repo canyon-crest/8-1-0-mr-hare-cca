@@ -85,12 +85,12 @@ jobs:
             }
           }
 
-          // Extract first numeric value from an element's text (handles labels like "Celsius: 100.00")
+          // Extract first numeric value from an element's text (handles "Celsius: 100.00")
           function readNumberFromElement(document, id) {
             const el = document.getElementById(id);
             if (!el) return NaN;
             const txt = (el.textContent || el.innerText || '').trim();
-            const match = txt.match(/-?\d+(?:\.\d+)?/);
+            const match = txt.match(/-?\\d+(?:\\.\\d+)?/);
             return match ? Number(match[0]) : NaN;
           }
 
@@ -102,8 +102,8 @@ jobs:
                 <!DOCTYPE html>
                 <html>
                   <body>
-                    <input id="temp" value="212">
-                    <input id="radius" value="5">
+                    <input id="temp" value="">
+                    <input id="radius" value="">
                     <div id="tempC"></div>
                     <div id="area"></div>
                     <button id="calcBtn">Calculate</button>
@@ -122,7 +122,10 @@ jobs:
             });
 
             test('displays correct Celsius for 212°F', () => {
+              // Set BOTH inputs because many implementations compute both at once
               document.getElementById('temp').value = '212';
+              document.getElementById('radius').value = '5';
+
               triggerStudentCalculation(window, document);
 
               const c = readNumberFromElement(document, 'tempC');
@@ -131,7 +134,10 @@ jobs:
             });
 
             test('displays correct area for radius=5', () => {
+              // Set BOTH inputs for the same reason
+              document.getElementById('temp').value = '212';
               document.getElementById('radius').value = '5';
+
               triggerStudentCalculation(window, document);
 
               const a = readNumberFromElement(document, 'area');

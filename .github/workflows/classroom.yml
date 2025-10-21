@@ -25,12 +25,8 @@ jobs:
         run: |
           cat > jest.setup.cjs <<'EOF'
           const { TextEncoder, TextDecoder } = require('util');
-          if (typeof global.TextEncoder === 'undefined') {
-            global.TextEncoder = TextEncoder;
-          }
-          if (typeof global.TextDecoder === 'undefined') {
-            global.TextDecoder = TextDecoder;
-          }
+          if (typeof global.TextEncoder === 'undefined') global.TextEncoder = TextEncoder;
+          if (typeof global.TextDecoder === 'undefined') global.TextDecoder = TextDecoder;
           EOF
 
       - name: Create Jest config (use jsdom env, setup file, and match .cjs tests)
@@ -54,11 +50,48 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
-          // Load and run the student's script in the DOM window
+          // Run student's script inside the JSDOM window
           function runStudentScript(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
-            const code = fs.readFileSync(scriptPath, 'utf8');
-            window.eval(code);
+            if (fs.existsSync(scriptPath)) {
+              const code = fs.readFileSync(scriptPath, 'utf8');
+              window.eval(code);
+            }
+          }
+
+          // Try to trigger student logic in multiple common ways
+          function triggerStudentCalculation(window, document) {
+            // 1) If they exposed a function, call it
+            if (typeof window.calculate === 'function') {
+              window.calculate();
+            }
+
+            // 2) If there's a button, click it (supports addEventListener or inline onclick)
+            const btn = document.getElementById('calcBtn') || document.querySelector('button');
+            if (btn) {
+              btn.click();
+            }
+
+            // 3) Fire input/change events in case they bound listeners to inputs
+            const temp = document.getElementById('temp');
+            const radius = document.getElementById('radius');
+            if (temp) {
+              temp.dispatchEvent(new window.Event('input', { bubbles: true }));
+              temp.dispatchEvent(new window.Event('change', { bubbles: true }));
+            }
+            if (radius) {
+              radius.dispatchEvent(new window.Event('input', { bubbles: true }));
+              radius.dispatchEvent(new window.Event('change', { bubbles: true }));
+            }
+          }
+
+          // Extract first numeric value from an element's text (handles labels like "Celsius: 100.00")
+          function readNumberFromElement(document, id) {
+            const el = document.getElementById(id);
+            if (!el) return NaN;
+            const txt = (el.textContent || el.innerText || '').trim();
+            const match = txt.match(/-?\d+(?:\.\d+)?/);
+            return match ? Number(match[0]) : NaN;
           }
 
           describe('Temperature and Circle Area Conversion (DOM Output)', () => {
@@ -79,6 +112,7 @@ jobs:
               dom = new JSDOM(html, { url: 'http://localhost/' });
               window = dom.window;
               document = window.document;
+
               runStudentScript(window);
             });
 
@@ -89,18 +123,20 @@ jobs:
 
             test('displays correct Celsius for 212°F', () => {
               document.getElementById('temp').value = '212';
-              if (typeof window.calculate === 'function') window.calculate();
-              const out = document.getElementById('tempC').textContent.trim();
-              const c = parseFloat(out);
+              triggerStudentCalculation(window, document);
+
+              const c = readNumberFromElement(document, 'tempC');
+              expect(Number.isNaN(c)).toBe(false);
               expect(Math.abs(c - 100)).toBeLessThan(0.5);
             });
 
             test('displays correct area for radius=5', () => {
               document.getElementById('radius').value = '5';
-              if (typeof window.calculate === 'function') window.calculate();
-              const out = document.getElementById('area').textContent.trim();
-              const a = parseFloat(out);
-              const expected = Math.PI * 25;
+              triggerStudentCalculation(window, document);
+
+              const a = readNumberFromElement(document, 'area');
+              const expected = Math.PI * 25; // r^2 = 25
+              expect(Number.isNaN(a)).toBe(false);
               expect(Math.abs(a - expected)).toBeLessThan(0.5);
             });
           });

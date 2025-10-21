@@ -50,6 +50,16 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
+          // Read number from either text or value (handles div/span OR input misuse)
+          function readNumberFromElement(document, id) {
+            const el = document.getElementById(id);
+            if (!el) return NaN;
+            const txt = ((el.textContent || el.innerText || '').trim()) ||
+                        (typeof el.value === 'string' ? el.value.trim() : '');
+            const match = txt.match(/-?\\d+(?:\\.\\d+)?/);
+            return match ? Number(match[0]) : NaN;
+          }
+
           // Run student's script inside the JSDOM window
           function runStudentScript(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
@@ -61,18 +71,16 @@ jobs:
 
           // Try to trigger student logic in multiple common ways
           function triggerStudentCalculation(window, document) {
-            // 1) If they exposed a function, call it
+            // 1) Exposed function
             if (typeof window.calculate === 'function') {
               window.calculate();
             }
 
-            // 2) If there's a button, click it (supports addEventListener or inline onclick)
+            // 2) Button click (supports addEventListener or inline onclick)
             const btn = document.getElementById('calcBtn') || document.querySelector('button');
-            if (btn) {
-              btn.click();
-            }
+            if (btn) btn.click();
 
-            // 3) Fire input/change events in case they bound listeners to inputs
+            // 3) Input/change events
             const temp = document.getElementById('temp');
             const radius = document.getElementById('radius');
             if (temp) {
@@ -85,25 +93,17 @@ jobs:
             }
           }
 
-          // Extract first numeric value from an element's text (handles "Celsius: 100.00")
-          function readNumberFromElement(document, id) {
-            const el = document.getElementById(id);
-            if (!el) return NaN;
-            const txt = (el.textContent || el.innerText || '').trim();
-            const match = txt.match(/-?\\d+(?:\\.\\d+)?/);
-            return match ? Number(match[0]) : NaN;
-          }
-
           describe('Temperature and Circle Area Conversion (DOM Output)', () => {
             let dom, document, window;
 
             beforeEach(() => {
+              // Pre-fill inputs BEFORE loading the student's script
               const html = `
                 <!DOCTYPE html>
                 <html>
                   <body>
-                    <input id="temp" value="">
-                    <input id="radius" value="">
+                    <input id="temp" value="212">
+                    <input id="radius" value="5">
                     <div id="tempC"></div>
                     <div id="area"></div>
                     <button id="calcBtn">Calculate</button>
@@ -113,7 +113,11 @@ jobs:
               window = dom.window;
               document = window.document;
 
+              // Load student's script (solutions that compute on load will now write outputs)
               runStudentScript(window);
+
+              // Also try to trigger logic for event-driven solutions
+              triggerStudentCalculation(window, document);
             });
 
             test('has required output elements tempC and area', () => {
@@ -122,24 +126,12 @@ jobs:
             });
 
             test('displays correct Celsius for 212°F', () => {
-              // Set BOTH inputs because many implementations compute both at once
-              document.getElementById('temp').value = '212';
-              document.getElementById('radius').value = '5';
-
-              triggerStudentCalculation(window, document);
-
               const c = readNumberFromElement(document, 'tempC');
               expect(Number.isNaN(c)).toBe(false);
               expect(Math.abs(c - 100)).toBeLessThan(0.5);
             });
 
             test('displays correct area for radius=5', () => {
-              // Set BOTH inputs for the same reason
-              document.getElementById('temp').value = '212';
-              document.getElementById('radius').value = '5';
-
-              triggerStudentCalculation(window, document);
-
               const a = readNumberFromElement(document, 'area');
               const expected = Math.PI * 25; // r^2 = 25
               expect(Number.isNaN(a)).toBe(false);

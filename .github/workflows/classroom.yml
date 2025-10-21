@@ -78,7 +78,7 @@ jobs:
             return m ? Number(m[0]) : NaN;
           }
 
-          // Set inputs and try common triggers WITHOUT clicking (to avoid inline onclick errors)
+          // Set inputs and trigger calculations without button clicks
           function setInputsAndTrigger(window, document, tempVal, radiusVal) {
             const t = document.getElementById('temp');
             const r = document.getElementById('radius');
@@ -112,9 +112,8 @@ jobs:
               const baseDir = path.dirname(path.resolve(indexPath));
               const baseUrl = 'file://' + baseDir.replace(/\\+/g, '/') + '/';
 
-              // Route console errors to Jest output but don't fail the run automatically
               const vconsole = new VirtualConsole();
-              vconsole.on('error', () => { /* swallow to avoid noisy stacktraces */ });
+              vconsole.on('error', () => { /* prevent noisy stacktraces, tests assert values instead */ });
 
               dom = await JSDOM.fromFile(indexPath, {
                 url: baseUrl,                    // IMPORTANT: file:// base so <script src> reads from disk
@@ -136,7 +135,6 @@ jobs:
             });
 
             test('displays correct Celsius for 212°F', async () => {
-              // Ensure inputs exist
               expect(document.getElementById('temp')).not.toBeNull();
               expect(document.getElementById('radius')).not.toBeNull();
 
@@ -177,7 +175,7 @@ jobs:
           name: jest-results
           path: jest-results.json
 
-      - name: Summarize results for students
+      - name: Summarize results for students (no solutions shown)
         if: always()
         run: |
           node - <<'NODE'
@@ -190,12 +188,12 @@ jobs:
           for (const t of (r.testResults||[]).flatMap(x => x.assertionResults||[])) map.set(t.fullName, t.status);
 
           const checks = [
-            ["has required output elements tempC and area", "Add <div id=\"tempC\"></div> and <div id=\"area\"></div> to your HTML."],
-            ["displays correct Celsius for 212°F", "Write ~100 into #tempC for 212°F; your script must run on load or via a function."],
-            ["displays correct area for radius=5", "Write ~78.54 into #area for radius 5; your script must run on load or via a function."]
+            ["has required output elements tempC and area", "Your page must include elements with ids #tempC and #area."],
+            ["displays correct Celsius for 212°F", "For an input of 212°F, #tempC should show a correct Celsius value (rounded is fine)."],
+            ["displays correct area for radius=5", "For a radius of 5, #area should show a correct area value (rounded is fine)."]
           ];
 
-          function mk(ok, label) { return `${ok ? '✅' : '❌'} ${label}`; }
+          const mark = (ok, label) => `${ok ? '✅' : '❌'} ${label}`;
 
           let out = [];
           out.push(`# Unit 8 Autograder Summary`);
@@ -203,14 +201,14 @@ jobs:
           out.push(`## What you got right / need to fix\n`);
           for (const [name, hint] of checks) {
             const ok = map.get(name) === 'passed';
-            out.push(mk(ok, name));
-            if (!ok) out.push(`   - Fix: ${hint}`);
+            out.push(mark(ok, name));
+            if (!ok) out.push(`   - Hint: ${hint}`);
           }
-          out.push(`\n### Requirements recap`);
-          out.push(`- Inputs: <input id="temp"> and <input id="radius">`);
-          out.push(`- Outputs on screen: <div id="tempC"> and <div id="area">`);
-          out.push(`\n### Example Implementation`);
-          out.push("```js\nfunction calculate() {\n  let tempF = Number(document.getElementById('temp').value);\n  let radius = Number(document.getElementById('radius').value);\n  let celsius = (tempF - 32) * 5 / 9;\n  let area = Math.PI * Math.pow(radius, 2);\n  document.getElementById('tempC').textContent = celsius.toFixed(2);\n  document.getElementById('area').textContent = area.toFixed(2);\n}\n```");
+          out.push(`\n### Reminders`);
+          out.push(`- Read values from the inputs with ids: temp, radius.`);
+          out.push(`- Show your results on the page in elements with ids: tempC, area.`);
+          out.push(`- Ensure your code runs when the page loads or when your function is called.`);
+
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out.join('\n'));
           NODE
 

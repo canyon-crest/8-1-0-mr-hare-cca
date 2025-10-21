@@ -1,27 +1,29 @@
-# .github/classroom.yml
-# GitHub Classroom Autograding Configuration
+name: "Classroom Autograder – Unit 8: Variables & Methods"
 
-name: "Temperature and Circle Area Assignment"
-on: [push]
+on:
+  push:
+  pull_request:
 
 jobs:
-  build:
+  autograde:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout student repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install test dependencies (pin jsdom to CJS version)
+      # Use CJS-compatible jsdom to avoid ESM config headaches
+      - name: Install test dependencies
         run: |
           npm install --save-dev jest@29 jsdom@21 jest-environment-jsdom@29
 
-      - name: Create Jest setup (polyfills for TextEncoder/TextDecoder)
+      # Polyfill TextEncoder/Decoder for whatwg-url inside jsdom
+      - name: Create Jest setup
         run: |
           cat > jest.setup.cjs <<'EOF'
           const { TextEncoder, TextDecoder } = require('util');
@@ -29,7 +31,8 @@ jobs:
           if (typeof global.TextDecoder === 'undefined') global.TextDecoder = TextDecoder;
           EOF
 
-      - name: Create Jest config (use jsdom env, setup file, and match .cjs tests)
+      # Tell Jest to use jsdom and pick up .cjs tests
+      - name: Create Jest config
         run: |
           cat > jest.config.cjs <<'EOF'
           module.exports = {
@@ -42,7 +45,11 @@ jobs:
           };
           EOF
 
-      - name: Create test file
+      # Create a robust test that:
+      # - pre-fills inputs before loading student script (handles compute-on-load code)
+      # - fires DOMContentLoaded/load, clicks button, and dispatches input/change events
+      # - reads numbers from either .textContent or .value (students sometimes use inputs for output)
+      - name: Create tests
         run: |
           mkdir -p __tests__
           cat > __tests__/script.test.cjs <<'EOF'
@@ -50,56 +57,41 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
-          // Read number from either .textContent or .value (in case students used <input> for output)
           function readNumberFromElement(document, id) {
             const el = document.getElementById(id);
             if (!el) return NaN;
-            const txt = ((el.textContent || el.innerText || '').trim()) ||
-                        (typeof el.value === 'string' ? el.value.trim() : '');
+            const txt = ((el.textContent || el.innerText || '').trim())
+                      || (typeof el.value === 'string' ? el.value.trim() : '');
             const match = txt.match(/-?\d+(?:\.\d+)?/);
             return match ? Number(match[0]) : NaN;
           }
 
-          // Run student's script inside the JSDOM window,
-          // then explicitly try to invoke calculate() inside *that same eval scope*
           function runStudentScriptAndTryCall(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
             if (fs.existsSync(scriptPath)) {
               const code = fs.readFileSync(scriptPath, 'utf8');
-              // 1) load their code
+              // load their code
               window.eval(code);
-              // 2) try to call calculate() within the same eval realm (works even if not on window)
-              try {
-                window.eval('if (typeof calculate === "function") { calculate(); }');
-              } catch (_) {}
+              // try to call calculate() in the same eval scope (even if not on window)
+              try { window.eval('if (typeof calculate==="function"){calculate();}'); } catch (_) {}
             }
           }
 
-          // Fire common lifecycle + user events to trigger student logic
           function triggerStudentCalculation(window, document) {
-            // Lifecycle events (for code using DOMContentLoaded / window.onload)
+            // Lifecycle
             document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
             window.dispatchEvent(new window.Event('load'));
-
-            // If they exposed a function on window, call it
-            if (typeof window.calculate === 'function') {
-              window.calculate();
-            }
-
-            // Button click (supports addEventListener or inline onclick)
-            const btn = document.getElementById('calcBtn') || document.querySelector('button');
-            if (btn) btn.click();
-
-            // Input/change events (for reactive listeners)
-            const temp = document.getElementById('temp');
-            const radius = document.getElementById('radius');
-            if (temp) {
-              temp.dispatchEvent(new window.Event('input', { bubbles: true }));
-              temp.dispatchEvent(new window.Event('change', { bubbles: true }));
-            }
-            if (radius) {
-              radius.dispatchEvent(new window.Event('input', { bubbles: true }));
-              radius.dispatchEvent(new window.Event('change', { bubbles: true }));
+            // Function if exposed
+            if (typeof window.calculate === 'function') window.calculate();
+            // Button click
+            (document.getElementById('calcBtn') || document.querySelector('button'))?.click();
+            // Input/change events
+            for (const id of ['temp', 'radius']) {
+              const el = document.getElementById(id);
+              if (el) {
+                el.dispatchEvent(new window.Event('input', { bubbles: true }));
+                el.dispatchEvent(new window.Event('change', { bubbles: true }));
+              }
             }
           }
 
@@ -107,7 +99,7 @@ jobs:
             let dom, document, window;
 
             beforeEach(() => {
-              // Pre-fill inputs BEFORE loading the student's script
+              // Pre-fill inputs BEFORE loading script.js
               const html = `
                 <!DOCTYPE html>
                 <html>
@@ -123,10 +115,7 @@ jobs:
               window = dom.window;
               document = window.document;
 
-              // Load student's script and try to call calculate() in the eval scope
               runStudentScriptAndTryCall(window);
-
-              // Also try to trigger logic for event-driven/window-exposed solutions
               triggerStudentCalculation(window, document);
             });
 
@@ -150,5 +139,79 @@ jobs:
           });
           EOF
 
-      - name: Run Jest tests
-        run: npx jest --runInBand --verbose
+      # Run Jest and also produce machine-readable results we can summarize
+      - name: Run tests (JSON results)
+        id: jest
+        continue-on-error: true
+        run: |
+          npx jest --runInBand --verbose --json --outputFile=jest-results.json
+
+      - name: Upload raw Jest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-results
+          path: jest-results.json
+
+      # Create a clear student-facing summary in the job summary & PR check
+      - name: Summarize results for students
+        if: always()
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('jest-results.json','utf8'));
+
+          const totalTests = r.numTotalTests ?? 0;
+          const passed = r.numPassedTests ?? 0;
+          const failed = r.numFailedTests ?? 0;
+
+          const byName = new Map();
+          for (const t of (r.testResults||[]).flatMap(x => x.assertionResults||[])) {
+            byName.set(t.fullName, t.status);
+          }
+
+          function bullet(ok, label) {
+            const mark = ok ? '✅' : '❌';
+            return `- ${mark} ${label}`;
+          }
+
+          const checks = [
+            ["has required output elements tempC and area", "Elements with ids `tempC` and `area` exist."],
+            ["displays correct Celsius for 212°F", "Celsius value appears on screen in `#tempC` and is ≈ 100.0 for 212°F."],
+            ["displays correct area for radius=5", "Area appears on screen in `#area` and is ≈ π·5² ≈ 78.54."]
+          ];
+
+          let summary = [];
+          summary.push(`# Unit 8 Autograder Summary`);
+          summary.push(`**Passed:** ${passed}/${totalTests}  ·  **Failed:** ${failed}`);
+
+          summary.push(`\n## What you got right / need to fix`);
+          for (const [name, hint] of checks) {
+            const status = byName.get(name);
+            summary.push(bullet(status === 'passed', `${name}`) + (status === 'passed' ? '' : `\n  - Fix: ${hint}`));
+          }
+
+          summary.push(`\n### Common Fixes`);
+          summary.push(`- Make sure your HTML includes: \`<input id="temp">\`, \`<input id="radius">\`, \`<div id="tempC">\`, \`<div id="area">\``);
+          summary.push(`- In \`script.js\`, compute both values and write them to the page:`);
+          summary.push(`  \`\`\`js
+function calculate() {
+  let tempF = parseFloat(document.getElementById("temp").value);
+  let radius = parseFloat(document.getElementById("radius").value);
+  let celsius = (tempF - 32) * 5 / 9;
+  let area = Math.PI * Math.pow(radius, 2);
+  document.getElementById("tempC").textContent = celsius.toFixed(2);
+  document.getElementById("area").textContent = area.toFixed(2);
+}
+  \`\`\``);
+          summary.push(`- If you rely on a button, ensure it exists (e.g., \`<button id="calcBtn" onclick="calculate()">\`) or add an event listener in JS.`);
+          summary.push(`- Results must be visible **on the page** (not just \`console.log\`).`);
+
+          // Write to the GitHub job summary (nice UI in Actions and PR checks)
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n'));
+          NODE
+
+      # Fail the job if Jest failed so Classroom marks it correctly
+      - name: Fail if tests failed
+        if: steps.jest.outcome == 'failure'
+        run: exit 1

@@ -42,15 +42,15 @@ jobs:
           };
           EOF
 
-      - name: Create Jest test (loads index.html + scripts like a browser)
+      - name: Create Jest test (load index.html from disk; call calculate() in page realm)
         run: |
           mkdir -p __tests__
           cat > __tests__/script.test.cjs <<'EOF'
           const fs = require('fs');
           const path = require('path');
-          const { JSDOM } = require('jsdom');
+          const { JSDOM, VirtualConsole } = require('jsdom');
 
-          // Locate index.html in common student locations
+          // Locate index.html in common places
           function findIndexPath() {
             const cands = [
               'index.html',
@@ -62,9 +62,9 @@ jobs:
             return null;
           }
 
-          // Helper: wait for window 'load' + small settle delay
-          async function waitForLoad(window, ms = 200) {
-            await new Promise(res => window.addEventListener('load', () => res(), { once: true }));
+          // Wait for window 'load' then a short settle
+          async function waitForLoad(window, ms = 50) {
+            await new Promise(res => window.addEventListener('load', res, { once: true }));
             await new Promise(res => window.setTimeout(res, ms));
           }
 
@@ -73,31 +73,29 @@ jobs:
             const el = document.getElementById(id);
             if (!el) return NaN;
             const raw = ((el.textContent ?? el.innerText ?? '').trim())
-                     || (typeof el.value === 'string' ? el.value.trim() : '');
+                      || (typeof el.value === 'string' ? el.value.trim() : '');
             const m = raw.match(/-?\d+(?:\.\d+)?/);
             return m ? Number(m[0]) : NaN;
           }
 
-          // Try many common triggers students use
-          function triggerAll(window, document) {
-            // lifecycle (in case they attached late listeners)
-            document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
-            window.dispatchEvent(new window.Event('load'));
+          // Set inputs and try common triggers WITHOUT clicking (to avoid inline onclick errors)
+          function setInputsAndTrigger(window, document, tempVal, radiusVal) {
+            const t = document.getElementById('temp');
+            const r = document.getElementById('radius');
+            if (!t || !r) return;
 
-            // exposed function
+            t.value = String(tempVal);
+            r.value = String(radiusVal);
+
+            // Fire input/change for reactive solutions
+            t.dispatchEvent(new window.Event('input', { bubbles: true }));
+            t.dispatchEvent(new window.Event('change', { bubbles: true }));
+            r.dispatchEvent(new window.Event('input', { bubbles: true }));
+            r.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+            // Call calculate() inside the page realm whether or not it's on window
+            try { window.eval('if (typeof calculate==="function"){ calculate(); }'); } catch (_) {}
             if (typeof window.calculate === 'function') window.calculate();
-
-            // click all buttons (covers inline onclick and addEventListener)
-            Array.from(document.querySelectorAll('button')).forEach(btn => btn.click());
-
-            // inputs events (reactive solutions)
-            ['temp','radius'].forEach(id => {
-              const el = document.getElementById(id);
-              if (el) {
-                el.dispatchEvent(new window.Event('input', { bubbles: true }));
-                el.dispatchEvent(new window.Event('change', { bubbles: true }));
-              }
-            });
           }
 
           describe('Temperature and Circle Area Conversion (DOM Output)', () => {
@@ -111,14 +109,25 @@ jobs:
             });
 
             beforeEach(async () => {
+              const baseDir = path.dirname(path.resolve(indexPath));
+              const baseUrl = 'file://' + baseDir.replace(/\\+/g, '/') + '/';
+
+              // Route console errors to Jest output but don't fail the run automatically
+              const vconsole = new VirtualConsole();
+              vconsole.on('error', () => { /* swallow to avoid noisy stacktraces */ });
+
               dom = await JSDOM.fromFile(indexPath, {
-                url: 'http://localhost/',
+                url: baseUrl,                    // IMPORTANT: file:// base so <script src> reads from disk
                 runScripts: 'dangerously',
-                resources: 'usable' // allow <script src="..."> to load
+                resources: 'usable',
+                pretendToBeVisual: true,
+                virtualConsole: vconsole
               });
+
               window = dom.window;
               document = window.document;
-              await waitForLoad(window); // wait for scripts to run
+
+              await waitForLoad(window); // let scripts execute
             });
 
             test('has required output elements tempC and area', () => {
@@ -128,17 +137,11 @@ jobs:
 
             test('displays correct Celsius for 212°F', async () => {
               // Ensure inputs exist
-              const t = document.getElementById('temp');
-              const r = document.getElementById('radius');
-              expect(t).not.toBeNull();
-              expect(r).not.toBeNull();
+              expect(document.getElementById('temp')).not.toBeNull();
+              expect(document.getElementById('radius')).not.toBeNull();
 
-              // Set BOTH inputs (many students compute both at once)
-              t.value = '212';
-              r.value = '5';
-
-              triggerAll(window, document);
-              await new Promise(res => window.setTimeout(res, 50));
+              setInputsAndTrigger(window, document, 212, 5);
+              await new Promise(res => window.setTimeout(res, 25));
 
               let c = readNumberFromElement(document, 'tempC');
               c = Number(c);
@@ -147,21 +150,15 @@ jobs:
             });
 
             test('displays correct area for radius=5', async () => {
-              const t = document.getElementById('temp');
-              const r = document.getElementById('radius');
-              expect(t).not.toBeNull();
-              expect(r).not.toBeNull();
+              expect(document.getElementById('temp')).not.toBeNull();
+              expect(document.getElementById('radius')).not.toBeNull();
 
-              // Set BOTH inputs
-              t.value = '212';
-              r.value = '5';
-
-              triggerAll(window, document);
-              await new Promise(res => window.setTimeout(res, 50));
+              setInputsAndTrigger(window, document, 212, 5);
+              await new Promise(res => window.setTimeout(res, 25));
 
               let a = readNumberFromElement(document, 'area');
               a = Number(a);
-              const expected = Math.PI * 25;
+              const expected = Math.PI * 25; // r^2 = 25
               expect(Number.isNaN(a)).toBe(false);
               expect(Math.abs(a - expected)).toBeLessThan(0.5);
             });
@@ -194,8 +191,8 @@ jobs:
 
           const checks = [
             ["has required output elements tempC and area", "Add <div id=\"tempC\"></div> and <div id=\"area\"></div> to your HTML."],
-            ["displays correct Celsius for 212°F", "Write ~100 into #tempC for 212°F; your script must run on load, button click, or via calculate()."],
-            ["displays correct area for radius=5", "Write ~78.54 into #area for radius 5; your script must run on load, button click, or via calculate()."]
+            ["displays correct Celsius for 212°F", "Write ~100 into #tempC for 212°F; your script must run on load or via a function."],
+            ["displays correct area for radius=5", "Write ~78.54 into #area for radius 5; your script must run on load or via a function."]
           ];
 
           function mk(ok, label) { return `${ok ? '✅' : '❌'} ${label}`; }
@@ -212,7 +209,6 @@ jobs:
           out.push(`\n### Requirements recap`);
           out.push(`- Inputs: <input id="temp"> and <input id="radius">`);
           out.push(`- Outputs on screen: <div id="tempC"> and <div id="area">`);
-          out.push(`- Your JS must run when the page loads, when a button is clicked, or via a 'calculate()' function.`);
           out.push(`\n### Example Implementation`);
           out.push("```js\nfunction calculate() {\n  let tempF = Number(document.getElementById('temp').value);\n  let radius = Number(document.getElementById('radius').value);\n  let celsius = (tempF - 32) * 5 / 9;\n  let area = Math.PI * Math.pow(radius, 2);\n  document.getElementById('tempC').textContent = celsius.toFixed(2);\n  document.getElementById('area').textContent = area.toFixed(2);\n}\n```");
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out.join('\n'));

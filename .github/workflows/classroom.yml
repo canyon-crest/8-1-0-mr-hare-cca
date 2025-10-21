@@ -28,54 +28,59 @@ jobs:
           const fs = require("fs");
           const { JSDOM } = require("jsdom");
 
-          describe("Temperature and Circle Area Conversion", () => {
-            let dom, document, window, consoleOutput;
+          describe("Temperature and Circle Area Conversion (DOM Output)", () => {
+            let dom, document, window;
 
-            beforeAll(() => {
+            beforeEach(() => {
               const html = `
                 <!DOCTYPE html>
                 <html>
                   <body>
                     <input id="temp" value="212">
                     <input id="radius" value="5">
+                    <div id="tempC"></div>
+                    <div id="area"></div>
                     <script src="../script.js"></script>
                   </body>
                 </html>`;
               dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable" });
               document = dom.window.document;
               window = dom.window;
-              consoleOutput = [];
-              window.console.log = (msg) => consoleOutput.push(msg);
             });
 
-            test("should convert Fahrenheit to Celsius correctly", () => {
+            test("should have output elements with ids tempC and area", () => {
+              expect(document.getElementById("tempC")).not.toBeNull();
+              expect(document.getElementById("area")).not.toBeNull();
+            });
+
+            test("should correctly convert Fahrenheit to Celsius and display it", () => {
+              const scriptContent = fs.readFileSync("script.js", "utf-8");
+              eval(scriptContent);
+
               const tempInput = document.getElementById("temp");
-              expect(tempInput).not.toBeNull();
-              tempInput.value = "212"; // boiling point of water
-              
-              // Evaluate script.js
-              const scriptContent = fs.readFileSync("script.js", "utf-8");
-              eval(scriptContent);
+              tempInput.value = "212"; // 212°F → 100°C
 
-              const hasCelsiusLog = consoleOutput.some((msg) =>
-                msg.toString().includes("100")
-              );
-              expect(hasCelsiusLog).toBe(true);
+              // Call calculate if defined
+              if (typeof window.calculate === "function") window.calculate();
+
+              const outputText = document.getElementById("tempC").textContent.trim();
+              const celsius = parseFloat(outputText);
+              expect(Math.abs(celsius - 100)).toBeLessThan(0.5);
             });
 
-            test("should calculate area of a circle correctly", () => {
-              const radiusInput = document.getElementById("radius");
-              expect(radiusInput).not.toBeNull();
-              radiusInput.value = "5";
-
+            test("should correctly calculate circle area and display it", () => {
               const scriptContent = fs.readFileSync("script.js", "utf-8");
               eval(scriptContent);
 
+              const radiusInput = document.getElementById("radius");
+              radiusInput.value = "5"; // Expected area ≈ 78.54
+
+              if (typeof window.calculate === "function") window.calculate();
+
+              const outputText = document.getElementById("area").textContent.trim();
+              const areaValue = parseFloat(outputText);
               const expectedArea = Math.PI * Math.pow(5, 2);
-              const hasAreaLog = consoleOutput.some((msg) =>
-                Math.abs(parseFloat(msg) - expectedArea) < 0.01
-              );
-              expect(hasAreaLog).toBe(true);
+              expect(Math.abs(areaValue - expectedArea)).toBeLessThan(0.5);
             });
           });
           EOF

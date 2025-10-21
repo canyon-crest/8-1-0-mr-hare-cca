@@ -1,13 +1,20 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>My Title</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="script.js"></script>
-</head>
-<body>
-    Your html goes here...
-    <br>See the <a href="README.md">README</a> for project details
-</body>
+<html>
+  <head>
+    <title>Temperature and Circle Area</title>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <h1>Unit 8: Variables and Methods</h1>
+
+    <label>Enter temperature (°F):</label>
+    <input id="temp" type="text"><br><br>
+
+    <label>Enter radius of circle:</label>
+    <input id="radius" type="text"><br><br>
+
+    <button onclick="calculate()">Calculate</button>
+    <div id="tempC"></div>               <!-- Celsius output -->
+    <div id="area"></div>                <!-- Area output -->
+  </body>
 </html>

@@ -60,12 +60,18 @@ jobs:
             return match ? Number(match[0]) : NaN;
           }
 
-          // Run student's script inside the JSDOM window
-          function runStudentScript(window) {
+          // Run student's script inside the JSDOM window,
+          // then explicitly try to invoke calculate() inside *that same eval scope*
+          function runStudentScriptAndTryCall(window) {
             const scriptPath = path.join(process.cwd(), 'script.js');
             if (fs.existsSync(scriptPath)) {
               const code = fs.readFileSync(scriptPath, 'utf8');
+              // 1) load their code
               window.eval(code);
+              // 2) try to call calculate() within the same eval realm (works even if not on window)
+              try {
+                window.eval('if (typeof calculate === "function") { calculate(); }');
+              } catch (_) {}
             }
           }
 
@@ -75,7 +81,7 @@ jobs:
             document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
             window.dispatchEvent(new window.Event('load'));
 
-            // If they exposed a function, call it
+            // If they exposed a function on window, call it
             if (typeof window.calculate === 'function') {
               window.calculate();
             }
@@ -117,10 +123,10 @@ jobs:
               window = dom.window;
               document = window.document;
 
-              // Load student's script (so on-load code can read pre-filled inputs)
-              runStudentScript(window);
+              // Load student's script and try to call calculate() in the eval scope
+              runStudentScriptAndTryCall(window);
 
-              // Also try to trigger logic for event-driven solutions
+              // Also try to trigger logic for event-driven/window-exposed solutions
               triggerStudentCalculation(window, document);
             });
 

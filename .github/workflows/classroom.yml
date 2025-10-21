@@ -50,13 +50,13 @@ jobs:
           const path = require('path');
           const { JSDOM } = require('jsdom');
 
-          // Read number from either text or value (handles div/span OR input misuse)
+          // Read number from either .textContent or .value (in case students used <input> for output)
           function readNumberFromElement(document, id) {
             const el = document.getElementById(id);
             if (!el) return NaN;
             const txt = ((el.textContent || el.innerText || '').trim()) ||
                         (typeof el.value === 'string' ? el.value.trim() : '');
-            const match = txt.match(/-?\\d+(?:\\.\\d+)?/);
+            const match = txt.match(/-?\d+(?:\.\d+)?/);
             return match ? Number(match[0]) : NaN;
           }
 
@@ -69,18 +69,22 @@ jobs:
             }
           }
 
-          // Try to trigger student logic in multiple common ways
+          // Fire common lifecycle + user events to trigger student logic
           function triggerStudentCalculation(window, document) {
-            // 1) Exposed function
+            // Lifecycle events (for code using DOMContentLoaded / window.onload)
+            document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
+            window.dispatchEvent(new window.Event('load'));
+
+            // If they exposed a function, call it
             if (typeof window.calculate === 'function') {
               window.calculate();
             }
 
-            // 2) Button click (supports addEventListener or inline onclick)
+            // Button click (supports addEventListener or inline onclick)
             const btn = document.getElementById('calcBtn') || document.querySelector('button');
             if (btn) btn.click();
 
-            // 3) Input/change events
+            // Input/change events (for reactive listeners)
             const temp = document.getElementById('temp');
             const radius = document.getElementById('radius');
             if (temp) {
@@ -113,7 +117,7 @@ jobs:
               window = dom.window;
               document = window.document;
 
-              // Load student's script (solutions that compute on load will now write outputs)
+              // Load student's script (so on-load code can read pre-filled inputs)
               runStudentScript(window);
 
               // Also try to trigger logic for event-driven solutions
